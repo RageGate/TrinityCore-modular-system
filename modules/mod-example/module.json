@@ -1,0 +1,61 @@
+{
+  "name": "ExampleModule",
+  "version": "1.0.0",
+  "description": "Example module demonstrating TrinityCore modular system functionality",
+  "author": "TrinityCore Team",
+  "website": "https://trinitycore.org",
+  "repository": "https://github.com/trinitycore/trinitycore",
+  "license": "GPL-2.0",
+  "trinitycore_version": "3.3.5",
+  "dependencies": [],
+  "tags": ["example", "tutorial", "demo"],
+  "enabled_by_default": true,
+  "requires_database": false,
+  "database_version": "2024010100",
+  "api_version": "1.0",
+  "priority": "normal",
+  "load_order": 100,
+  "features": {
+    "player_events": true,
+    "world_events": true,
+    "chat_commands": true,
+    "configuration": true,
+    "statistics": true
+  },
+  "requirements": {
+    "minimum_core_version": "3.3.5.12340",
+    "maximum_core_version": "3.3.5.99999",
+    "required_patches": [],
+    "conflicting_modules": []
+  },
+  "permissions": {
+    "database_access": false,
+    "file_system_access": true,
+    "network_access": false,
+    "system_commands": false
+  },
+  "configuration": {
+    "config_file": "conf/ExampleModule.conf",
+    "hot_reload": true,
+    "validation_schema": "conf/ExampleModule.schema.json"
+  },
+  "installation": {
+    "sql_files": [],
+    "data_files": [],
+    "config_files": [
+      "conf/ExampleModule.conf"
+    ]
+  },
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2024-01-01",
+      "changes": [
+        "Initial release",
+        "Basic player event handling",
+        "Configuration system",
+        "Chat command support"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,720 @@
+<#
+.SYNOPSIS
+    TrinityCore Module Creator PowerShell Script
+    
+.DESCRIPTION
+    A PowerShell utility script to create new module templates for TrinityCore.
+    This script creates a complete module structure with all necessary files.
+    
+.PARAMETER ModuleName
+    The name of the module to create (required)
+    
+.PARAMETER Author
+    The author name for the module (default: "Unknown")
+    
+.PARAMETER Description
+    A description of what the module does
+    
+.PARAMETER Version
+    The initial version of the module (default: "1.0.0")
+    
+.PARAMETER CoreVersion
+    The TrinityCore version this module targets (default: "3.3.5")
+    
+.PARAMETER OutputDir
+    The output directory where the module will be created (default: current directory)
+    
+.EXAMPLE
+    .\create_module.ps1 -ModuleName "MyAwesomeModule"
+    
+.EXAMPLE
+    .\create_module.ps1 -ModuleName "CustomFeature" -Author "John Doe" -Description "A custom feature for my server"
+    
+.EXAMPLE
+    .\create_module.ps1 -ModuleName "PlayerRewards" -Version "2.0.0" -CoreVersion "3.3.5a"
+#>
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$ModuleName,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$Author = "Unknown",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$Description = "",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$Version = "1.0.0",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$CoreVersion = "3.3.5",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$OutputDir = "."
+)
+
+# Function to validate module name
+function Test-ModuleName {
+    param([string]$Name)
+    
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $false
+    }
+    
+    # Check if name contains only valid characters
+    if ($Name -notmatch '^[a-zA-Z0-9_-]+$') {
+        return $false
+    }
+    
+    return $true
+}
+
+# Function to create directory structure
+function New-ModuleStructure {
+    param(
+        [string]$ModuleName,
+        [string]$BaseDir
+    )
+    
+    $ModuleDir = Join-Path $BaseDir "mod-$($ModuleName.ToLower())"
+    
+    if (Test-Path $ModuleDir) {
+        throw "Module directory '$ModuleDir' already exists"
+    }
+    
+    # Create directories
+    $Directories = @(
+        $ModuleDir,
+        (Join-Path $ModuleDir "src"),
+        (Join-Path $ModuleDir "conf"),
+        (Join-Path $ModuleDir "tests"),
+        (Join-Path $ModuleDir "docs"),
+        (Join-Path $ModuleDir "sql"),
+        (Join-Path $ModuleDir "data")
+    )
+    
+    foreach ($Dir in $Directories) {
+        New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+        Write-Host "Created directory: $Dir" -ForegroundColor Green
+    }
+    
+    return $ModuleDir
+}
+
+# Function to create module.json
+function New-ModuleJson {
+    param(
+        [string]$ModuleDir,
+        [string]$ModuleName,
+        [string]$Author,
+        [string]$Description,
+        [string]$Version,
+        [string]$CoreVersion
+    )
+    
+    $CurrentDate = Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ"
+    $CurrentDateShort = Get-Date -Format "yyyy-MM-dd"
+    
+    $ModuleJson = @{
+        name = $ModuleName
+        version = $Version
+        description = $Description
+        author = $Author
+        core_version = $CoreVersion
+        enabled = $true
+        dependencies = @()
+        features = @(
+            "player_events",
+            "configuration",
+            "chat_commands"
+        )
+        requirements = @{
+            cmake_minimum = "3.16"
+            cpp_standard = "17"
+            platforms = @("Windows", "Linux", "macOS")
+        }
+        permissions = @{
+            database_access = $false
+            file_system_access = $true
+            network_access = $false
+            admin_commands = $false
+        }
+        configuration = @{
+            config_file = "$ModuleName.conf"
+            hot_reload = $true
+            validation = $true
+        }
+        installation = @{
+            auto_install = $true
+            requires_restart = $false
+            backup_config = $true
+        }
+        metadata = @{
+            created = $CurrentDate
+            license = "GPL-2.0"
+            homepage = ""
+            repository = ""
+            issues = ""
+        }
+        changelog = @(
+            @{
+                version = $Version
+                date = $CurrentDateShort
+                changes = @("Initial module creation")
+            }
+        )
+    }
+    
+    $JsonFile = Join-Path $ModuleDir "module.json"
+    $ModuleJson | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonFile -Encoding UTF8
+    
+    Write-Host "Created: $JsonFile" -ForegroundColor Green
+    return $JsonFile
+}
+
+# Function to create CMakeLists.txt
+function New-CMakeFile {
+    param(
+        [string]$ModuleDir,
+        [string]$ModuleName
+    )
+    
+    $CMakeContent = @"
+#
+# $ModuleName Module CMake Configuration
+# Generated by TrinityCore Module Creator
+#
+
+cmake_minimum_required(VERSION 3.16)
+
+# Read module metadata
+file(READ `"`${CMAKE_CURRENT_SOURCE_DIR}/module.json`" MODULE_JSON)
+
+# Extract module information (simplified JSON parsing)
+string(REGEX MATCH `"\\`"name\\`"[[:space:]]*:[[:space:]]*\\`"([^\\`"]+)\\`"`" MODULE_NAME_MATCH `"`${MODULE_JSON}`")
+if(MODULE_NAME_MATCH)
+    set(MODULE_NAME `"`${CMAKE_MATCH_1}`")
+else()
+    set(MODULE_NAME `"$ModuleName`")
+endif()
+
+string(REGEX MATCH `"\\`"version\\`"[[:space:]]*:[[:space:]]*\\`"([^\\`"]+)\\`"`" MODULE_VERSION_MATCH `"`${MODULE_JSON}`")
+if(MODULE_VERSION_MATCH)
+    set(MODULE_VERSION `"`${CMAKE_MATCH_1}`")
+else()
+    set(MODULE_VERSION `"1.0.0`")
+endif()
+
+message(STATUS `"Configuring module: `${MODULE_NAME} v`${MODULE_VERSION}`")
+
+# Module source files
+file(GLOB_RECURSE MODULE_SOURCES
+    `"`${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp`"
+    `"`${CMAKE_CURRENT_SOURCE_DIR}/src/*.h`"
+)
+
+# Create module library
+add_library(`${MODULE_NAME} SHARED `${MODULE_SOURCES})
+
+# Set target properties
+set_target_properties(`${MODULE_NAME} PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    VERSION `${MODULE_VERSION}
+    SOVERSION 1
+    OUTPUT_NAME `"`${MODULE_NAME}`"
+    PREFIX `"mod_`"
+)
+
+# Include directories
+target_include_directories(`${MODULE_NAME} PRIVATE
+    `"`${CMAKE_CURRENT_SOURCE_DIR}/src`"
+    `"`${CMAKE_SOURCE_DIR}/src/server/game/Plugins`"
+    `"`${CMAKE_SOURCE_DIR}/src/server/shared`"
+    `"`${CMAKE_SOURCE_DIR}/src/server/database`"
+    `"`${CMAKE_SOURCE_DIR}/src/common`"
+)
+
+# Link against TrinityCore libraries
+target_link_libraries(`${MODULE_NAME} PRIVATE
+    game
+    shared
+    common
+)
+
+# Compiler definitions
+target_compile_definitions(`${MODULE_NAME} PRIVATE
+    MODULE_NAME=`"`${MODULE_NAME}`"
+    MODULE_VERSION=`"`${MODULE_VERSION}`"
+)
+
+# Platform-specific settings
+if(WIN32)
+    target_compile_definitions(`${MODULE_NAME} PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+endif()
+
+# Debug settings
+if(CMAKE_BUILD_TYPE STREQUAL `"Debug`")
+    target_compile_definitions(`${MODULE_NAME} PRIVATE
+        MODULE_DEBUG=1
+    )
+endif()
+
+# Installation
+install(TARGETS `${MODULE_NAME}
+    LIBRARY DESTINATION `"`${CMAKE_INSTALL_LIBDIR}/modules`"
+    RUNTIME DESTINATION `"`${CMAKE_INSTALL_BINDIR}/modules`"
+    COMPONENT modules
+)
+
+# Install configuration files
+file(GLOB MODULE_CONFIGS `"`${CMAKE_CURRENT_SOURCE_DIR}/conf/*.conf`")
+if(MODULE_CONFIGS)
+    install(FILES `${MODULE_CONFIGS}
+        DESTINATION `"`${CMAKE_INSTALL_SYSCONFDIR}/modules`"
+        COMPONENT modules
+    )
+endif()
+
+# Install SQL files
+file(GLOB MODULE_SQL `"`${CMAKE_CURRENT_SOURCE_DIR}/sql/*.sql`")
+if(MODULE_SQL)
+    install(FILES `${MODULE_SQL}
+        DESTINATION `"`${CMAKE_INSTALL_DATADIR}/sql/modules/`${MODULE_NAME}`"
+        COMPONENT modules
+    )
+endif()
+
+# Install documentation
+if(EXISTS `"`${CMAKE_CURRENT_SOURCE_DIR}/README.md`")
+    install(FILES `"`${CMAKE_CURRENT_SOURCE_DIR}/README.md`"
+        DESTINATION `"`${CMAKE_INSTALL_DOCDIR}/modules/`${MODULE_NAME}`"
+        COMPONENT modules
+    )
+endif()
+
+# Validation
+if(NOT MODULE_SOURCES)
+    message(WARNING `"No source files found for module `${MODULE_NAME}`")
+endif()
+
+# Testing
+if(BUILD_TESTING)
+    file(GLOB TEST_SOURCES `"`${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp`")
+    if(TEST_SOURCES)
+        add_executable(test_`${MODULE_NAME} `${TEST_SOURCES})
+        target_link_libraries(test_`${MODULE_NAME} `${MODULE_NAME} gtest gtest_main)
+        add_test(NAME `"`${MODULE_NAME}_tests`" COMMAND test_`${MODULE_NAME})
+    endif()
+endif()
+
+# Development helpers
+add_custom_target(`${MODULE_NAME}_install
+    COMMAND `${CMAKE_COMMAND} --build . --target install --component modules
+    DEPENDS `${MODULE_NAME}
+    COMMENT `"Installing `${MODULE_NAME} module`"
+)
+
+message(STATUS `"Module `${MODULE_NAME} configured successfully`")
+"@
+    
+    $CMakeFile = Join-Path $ModuleDir "CMakeLists.txt"
+    $CMakeContent | Set-Content -Path $CMakeFile -Encoding UTF8
+    
+    Write-Host "Created: $CMakeFile" -ForegroundColor Green
+    return $CMakeFile
+}
+
+# Function to create header file
+function New-HeaderFile {
+    param(
+        [string]$ModuleDir,
+        [string]$ModuleName,
+        [string]$Author
+    )
+    
+    $ClassName = "${ModuleName}Module"
+    $HeaderContent = @"
+/*
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef $($ModuleName.ToUpper())_MODULE_H
+#define $($ModuleName.ToUpper())_MODULE_H
+
+#include "IPlugin.h"
+#include "PluginConfig.h"
+#include <memory>
+#include <unordered_map>
+#include <mutex>
+
+class Player;
+class WorldSession;
+
+/**
+ * $ModuleName Module
+ * 
+ * @author $Author
+ * @version 1.0.0
+ * 
+ * This module provides [describe your module functionality here]
+ */
+class $ClassName : public IPlugin
+{
+public:
+    $ClassName();
+    virtual ~$ClassName();
+    
+    // IPlugin interface
+    bool Initialize() override;
+    void Shutdown() override;
+    void Update(uint32 diff) override;
+    
+    const char* GetName() const override { return "$ModuleName"; }
+    const char* GetVersion() const override { return "1.0.0"; }
+    const char* GetAuthor() const override { return "$Author"; }
+    const char* GetDescription() const override { return "$ModuleName module for TrinityCore"; }
+    
+    PluginPriority GetPriority() const override { return PLUGIN_PRIORITY_NORMAL; }
+    
+    bool IsEnabled() const { return _enabled; }
+    
+    // Configuration management
+    bool LoadConfiguration();
+    bool ReloadConfiguration();
+    
+    // Event handlers
+    void OnPlayerLogin(Player* player);
+    void OnPlayerLogout(Player* player);
+    void OnPlayerLevelChanged(Player* player, uint8 oldLevel);
+    void OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg);
+    
+    // Chat commands
+    bool HandleInfoCommand(ChatHandler* handler, char const* args);
+    bool HandleConfigCommand(ChatHandler* handler, char const* args);
+    
+    // Singleton access
+    static $ClassName* GetInstance();
+    
+private:
+    // Configuration structure
+    struct ModuleConfig
+    {
+        bool enabled = true;
+        bool debugMode = false;
+        
+        // Add your configuration options here
+        std::string welcomeMessage = "Welcome to the server!";
+        bool enableWelcome = true;
+        uint32 welcomeDelay = 5;
+        
+        // Feature flags
+        bool enablePlayerTracking = true;
+        bool enableChatLogging = false;
+        bool enableStatistics = true;
+    };
+    
+    // Player data structure
+    struct PlayerData
+    {
+        uint32 loginCount = 0;
+        uint32 sessionStartTime = 0;
+        uint32 lastSeenTime = 0;
+        uint32 totalPlayTime = 0;
+        
+        // Add custom player data here
+    };
+    
+    // Private methods
+    bool CheckDependencies();
+    void RegisterChatCommands();
+    void UnregisterChatCommands();
+    void UpdateStatistics();
+    void SaveStatistics();
+    void CleanupPlayerData();
+    
+    // Member variables
+    bool _enabled;
+    bool _debugMode;
+    ModuleConfig _config;
+    
+    // Player data management
+    std::unordered_map<ObjectGuid, PlayerData> _playerData;
+    mutable std::mutex _playerDataMutex;
+    
+    // Statistics
+    uint32 _totalLogins;
+    uint32 _totalLevelUps;
+    uint32 _lastStatsUpdate;
+    uint32 _lastConfigCheck;
+    
+    // Event handler
+    std::unique_ptr<PluginEventHandler> _eventHandler;
+    
+    // Singleton instance
+    static $ClassName* _instance;
+};
+
+// Registration macro
+REGISTER_PLUGIN($ClassName);
+
+#endif // $($ModuleName.ToUpper())_MODULE_H
+"@
+    
+    $HeaderFile = Join-Path (Join-Path $ModuleDir "src") "$ClassName.h"
+    $HeaderContent | Set-Content -Path $HeaderFile -Encoding UTF8
+    
+    Write-Host "Created: $HeaderFile" -ForegroundColor Green
+    return $HeaderFile
+}
+
+# Function to create configuration file
+function New-ConfigFile {
+    param(
+        [string]$ModuleDir,
+        [string]$ModuleName
+    )
+    
+    $ConfigContent = @"
+#
+# $ModuleName Module Configuration
+# Generated by TrinityCore Module Creator
+#
+
+###################################################################################################
+# $($ModuleName.ToUpper()) MODULE SETTINGS
+###################################################################################################
+
+#
+# $ModuleName.Enabled
+#     Description: Enable/disable the $ModuleName module
+#     Default:     1 (enabled)
+#
+
+$ModuleName.Enabled = 1
+
+#
+# $ModuleName.DebugMode
+#     Description: Enable debug logging for the module
+#     Default:     0 (disabled)
+#
+
+$ModuleName.DebugMode = 0
+
+#
+# $ModuleName.WelcomeMessage
+#     Description: Welcome message to display to players
+#     Default:     "Welcome to the server!"
+#
+
+$ModuleName.WelcomeMessage = "Welcome to our TrinityCore server!"
+
+#
+# $ModuleName.EnableWelcome
+#     Description: Enable/disable welcome message
+#     Default:     1 (enabled)
+#
+
+$ModuleName.EnableWelcome = 1
+
+#
+# $ModuleName.WelcomeDelay
+#     Description: Delay in seconds before showing welcome message
+#     Default:     5
+#
+
+$ModuleName.WelcomeDelay = 5
+
+#
+# $ModuleName.EnablePlayerTracking
+#     Description: Enable player login/logout tracking
+#     Default:     1 (enabled)
+#
+
+$ModuleName.EnablePlayerTracking = 1
+
+#
+# $ModuleName.EnableChatLogging
+#     Description: Enable chat message logging
+#     Default:     0 (disabled)
+#
+
+$ModuleName.EnableChatLogging = 0
+
+#
+# $ModuleName.EnableStatistics
+#     Description: Enable statistics collection
+#     Default:     1 (enabled)
+#
+
+$ModuleName.EnableStatistics = 1
+"@
+    
+    $ConfigFile = Join-Path (Join-Path $ModuleDir "conf") "$ModuleName.conf"
+    $ConfigContent | Set-Content -Path $ConfigFile -Encoding UTF8
+    
+    Write-Host "Created: $ConfigFile" -ForegroundColor Green
+    return $ConfigFile
+}
+
+# Function to create README file
+function New-ReadmeFile {
+    param(
+        [string]$ModuleDir,
+        [string]$ModuleName,
+        [string]$Author,
+        [string]$Description
+    )
+    
+    $ReadmeContent = @"
+# $ModuleName Module
+
+$Description
+
+## Overview
+
+This module provides [describe your module functionality here].
+
+## Features
+
+- Player event handling
+- Configuration management
+- Chat commands
+- Statistics collection
+- Hot configuration reload
+
+## Installation
+
+1. Copy the module to your ``modules/mod-$($ModuleName.ToLower())/`` directory
+2. Add the module to your CMake build
+3. Configure the module settings in ``$ModuleName.conf``
+4. Build and restart your server
+
+## Configuration
+
+The module can be configured through the ``$ModuleName.conf`` file:
+
+````ini
+# Enable/disable the module
+$ModuleName.Enabled = 1
+
+# Enable debug logging
+$ModuleName.DebugMode = 0
+
+# Welcome message settings
+$ModuleName.WelcomeMessage = "Welcome to our server!"
+$ModuleName.EnableWelcome = 1
+$ModuleName.WelcomeDelay = 5
+
+# Feature toggles
+$ModuleName.EnablePlayerTracking = 1
+$ModuleName.EnableChatLogging = 0
+$ModuleName.EnableStatistics = 1
+````
+
+## Chat Commands
+
+- ``.$(ModuleName.ToLower()) info`` - Display module information
+- ``.$(ModuleName.ToLower()) config`` - Reload module configuration
+
+## Development
+
+### Building
+
+````bash
+mkdir build
+cd build
+cmake ..
+make $ModuleName
+````
+
+### Testing
+
+````bash
+make test_$ModuleName
+./test_$ModuleName
+````
+
+## Author
+
+**$Author**
+
+## License
+
+This module is licensed under the GPL-2.0 License.
+"@
+    
+    $ReadmeFile = Join-Path $ModuleDir "README.md"
+    $ReadmeContent | Set-Content -Path $ReadmeFile -Encoding UTF8
+    
+    Write-Host "Created: $ReadmeFile" -ForegroundColor Green
+    return $ReadmeFile
+}
+
+# Main script execution
+try {
+    # Validate input
+    if (-not (Test-ModuleName $ModuleName)) {
+        Write-Error "Invalid module name. Module name can only contain letters, numbers, hyphens, and underscores."
+        exit 1
+    }
+    
+    # Set default description if not provided
+    if ([string]::IsNullOrWhiteSpace($Description)) {
+        $Description = "A custom module for TrinityCore: $ModuleName"
+    }
+    
+    # Resolve output directory
+    $BaseDir = Resolve-Path $OutputDir
+    
+    Write-Host "Creating module: $ModuleName" -ForegroundColor Cyan
+    Write-Host "Author: $Author" -ForegroundColor Cyan
+    Write-Host "Description: $Description" -ForegroundColor Cyan
+    Write-Host "Version: $Version" -ForegroundColor Cyan
+    Write-Host "Core Version: $CoreVersion" -ForegroundColor Cyan
+    Write-Host "Output Directory: $BaseDir" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Create module structure
+    $ModuleDir = New-ModuleStructure -ModuleName $ModuleName -BaseDir $BaseDir
+    
+    # Create module files
+    New-ModuleJson -ModuleDir $ModuleDir -ModuleName $ModuleName -Author $Author -Description $Description -Version $Version -CoreVersion $CoreVersion
+    New-CMakeFile -ModuleDir $ModuleDir -ModuleName $ModuleName
+    New-HeaderFile -ModuleDir $ModuleDir -ModuleName $ModuleName -Author $Author
+    New-ConfigFile -ModuleDir $ModuleDir -ModuleName $ModuleName
+    New-ReadmeFile -ModuleDir $ModuleDir -ModuleName $ModuleName -Author $Author -Description $Description
+    
+    Write-Host ""
+    Write-Host "Module '$ModuleName' created successfully!" -ForegroundColor Green
+    Write-Host "Location: $ModuleDir" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Next steps:" -ForegroundColor Yellow
+    Write-Host "1. Customize the module code in the src/ directory" -ForegroundColor Yellow
+    Write-Host "2. Update the configuration in conf/ directory" -ForegroundColor Yellow
+    Write-Host "3. Add the module to your CMake build" -ForegroundColor Yellow
+    Write-Host "4. Build and test your module" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Happy coding!" -ForegroundColor Magenta
+    
+} catch {
+    Write-Error "Error creating module: $($_.Exception.Message)"
+    exit 1
+}
