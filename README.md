@@ -15,7 +15,7 @@ The modular system provides:
 ## Directory Structure
 
 ```
-eclipse/
+TrinityCore-3.3.5/
 ├── CMakeLists.txt              # Main project configuration
 ├── src/
 │   └── server/
